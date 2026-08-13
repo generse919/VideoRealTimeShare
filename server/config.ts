@@ -42,6 +42,10 @@ function findExecutable(name: string, knownPaths: string[]): string | null {
   return null;
 }
 
+/** Homebrew (Mac) のよくあるインストール先。Apple Silicon と Intel で異なる */
+const MAC_BREW_BINS = ["/opt/homebrew/bin", "/usr/local/bin"];
+const macFallback = (name: string): string[] => MAC_BREW_BINS.map((dir) => path.join(dir, name));
+
 /**
  * ffmpeg / ffprobe のパス解決。
  * ImageMagick 等が古い ffmpeg だけを PATH 上位に置いていることがあるため、
@@ -52,13 +56,13 @@ function resolveFfmpeg(): { ffmpeg: string | null; ffprobe: string | null } {
   const envFfprobe = process.env.VRT_FFPROBE_PATH;
   if (envFfmpeg && envFfprobe) return { ffmpeg: envFfmpeg, ffprobe: envFfprobe };
 
-  const ffprobe = envFfprobe ?? findOnPath("ffprobe");
+  const ffprobe = envFfprobe ?? findExecutable("ffprobe", macFallback("ffprobe"));
   let ffmpeg = envFfmpeg ?? null;
   if (!ffmpeg && ffprobe) {
     const sibling = path.join(path.dirname(ffprobe), process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
     if (fs.existsSync(sibling)) ffmpeg = sibling;
   }
-  if (!ffmpeg) ffmpeg = findOnPath("ffmpeg");
+  if (!ffmpeg) ffmpeg = findExecutable("ffmpeg", macFallback("ffmpeg"));
   return { ffmpeg, ffprobe };
 }
 
@@ -70,12 +74,15 @@ const cloudflaredPath =
     "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe",
     "C:\\Program Files\\cloudflared\\cloudflared.exe",
     path.join(os.homedir(), "AppData", "Local", "Microsoft", "WinGet", "Links", "cloudflared.exe"),
+    ...macFallback("cloudflared"),
   ]);
+
+const defaultMediaDir = path.join(os.homedir(), process.platform === "darwin" ? "Movies" : "Videos");
 
 export const config = {
   projectRoot,
   port: Number(process.env.VRT_PORT ?? 8787),
-  mediaDir: process.env.VRT_MEDIA_DIR ?? path.join(os.homedir(), "Videos"),
+  mediaDir: process.env.VRT_MEDIA_DIR ?? defaultMediaDir,
   cacheDir: path.join(projectRoot, ".cache"),
   clientDist: path.join(projectRoot, "client", "dist"),
   ffmpegPath: ffmpeg,

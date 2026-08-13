@@ -1,3 +1,4 @@
+import { exec } from "node:child_process";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -17,6 +18,16 @@ const shareUrl = () => `${origin()}/?room=${config.roomToken}`;
 const hostUrl = () => `${shareUrl()}&host=${config.hostKey}`;
 
 const room = new Room(() => ({ tunnelUrl, shareUrl: shareUrl() }));
+
+/** 非エンジニアでもURLをコピペせず済むよう、起動完了時に既定ブラウザで自動的に開く */
+function openBrowser(url: string): void {
+  if (process.env.VRT_NO_OPEN === "1") return;
+  const cmd =
+    process.platform === "win32" ? `start "" "${url}"` : process.platform === "darwin" ? `open "${url}"` : `xdg-open "${url}"`;
+  exec(cmd, () => {
+    /* 開けなくても致命的ではないので無視 (ヘッドレス環境など) */
+  });
+}
 
 const app = express();
 app.use(express.json());
@@ -137,5 +148,6 @@ server.listen(config.port, () => {
       console.log(`リモート (共有用URL)  : ${shareUrl()}  <- これを友人に送る`);
     }
     room.notifyTunnelChanged();
+    openBrowser(hostUrl());
   });
 });

@@ -5,6 +5,23 @@
 - 想定人数: 2〜4人 (ホスト1人 + ゲスト)
 - ボイスチャットは非搭載 (Discord等を併用してください)
 
+## かんたん起動 (非エンジニア向け)
+
+プログラミングの知識やコマンド操作は不要です。**動画を共有する側 (ホスト) だけ**、以下の準備をしてください。ゲストはブラウザで参加するだけです。
+
+1. [Releases ページ](../../releases/latest) から、自分のOSに合ったzipをダウンロード
+   - Windows: `VideoRealTime-windows-vX.X.X.zip`
+   - Mac: `VideoRealTime-mac-vX.X.X.zip`
+2. zipを展開する (右クリック→「すべて展開」/ ダブルクリック)
+3. 展開してできた `VideoRealTime` フォルダの中の起動ファイルをダブルクリック
+   - Windows: `start.bat`
+   - Mac: `start.command` (初回は右クリック→「開く」が必要な場合があります)
+4. 数秒待つと自動でブラウザが開きます。共有したい動画を選んで、右側の「共有」欄のURLを友人に送ってください
+
+[Node.js](https://nodejs.org/) (無料) だけは事前にインストールしておく必要があります。他の必要なソフト (ffmpeg / cloudflared) は起動時に自動でインストールを試みます (失敗した場合は画面に手動インストール手順が表示されます)。
+
+開発者の方・ソースから動かしたい方は、下記の「開発」セクションを参照してください。
+
 ## 仕組み
 
 - 各クライアントは動画ファイル自体をHTTP (Range対応) で受信し、自分のペースでバッファリング
@@ -57,9 +74,10 @@ npm start          # ビルドして起動
 | 変数 | 既定値 | 説明 |
 |---|---|---|
 | `VRT_PORT` | `8787` | サーバーポート |
-| `VRT_MEDIA_DIR` | `~/Videos` | 動画一覧に表示するフォルダ |
+| `VRT_MEDIA_DIR` | `~/Videos` (Macは `~/Movies`) | 動画一覧に表示するフォルダ |
 | `VRT_ROOM_TOKEN` / `VRT_HOST_KEY` | 起動ごとにランダム | URLを固定したい場合に指定 |
 | `VRT_NO_TUNNEL` | - | `1` で cloudflared を起動しない |
+| `VRT_NO_OPEN` | - | `1` で起動時のブラウザ自動起動を無効化 |
 | `VRT_FFMPEG_PATH` / `VRT_FFPROBE_PATH` | PATHから自動検出 | ffmpeg/ffprobe の場所を明示 |
 
 ffmpegの自動検出は「ffprobeが見つかったフォルダのffmpeg」を優先します (ImageMagick等が古いffmpegだけをPATHに置いている環境への対策)。
@@ -73,9 +91,24 @@ npm run typecheck  # 型チェック
 
 構成:
 
-- `server/` — Express + ws。`room.ts` が同期の状態機械、`media.ts` がffprobe判定とffmpeg変換、`tunnel.ts` がcloudflared連携
+- `server/` — Express + ws。`room.ts` が同期の状態機械、`media.ts` がffprobe判定とffmpeg変換、`tunnel.ts` がcloudflared連携、`launcher.mjs` が配布版の非エンジニア向け起動メッセージ担当
 - `client/` — Vite + vanilla TS。`src/sync.ts` がクロック同期とドリフト補正エンジン
 - `shared/messages.ts` — WSメッセージの型定義 (両側で共用)
+
+### 配布用ビルド (Releases)
+
+```sh
+npm run release   # release/ に Windows用 / Mac用 zip を生成
+```
+
+`scripts/build-release.mjs` がクライアントをビルドし、サーバーを esbuild で依存関係込みの単一ファイル (`server/server.mjs`) にバンドルして、`scripts/start.bat` / `scripts/start.command` と一緒にzip化します (利用者はNode.js以外のインストール作業が不要になります)。
+
+`v1.0.0` のようなタグをpushすると、`.github/workflows/release.yml` が自動でこのビルドを実行し、GitHub Releasesにzipを公開します。
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
 
 ## 制限事項
 
