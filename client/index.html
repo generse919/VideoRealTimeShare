@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VideoRealTime</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- 参加画面 -->
+    <div id="join-screen">
+      <div class="join-card">
+        <h1>🎬 VideoRealTime</h1>
+        <p class="join-sub">低遅延・同時視聴</p>
+        <p id="join-error" class="error" hidden></p>
+        <input id="name-input" type="text" placeholder="表示名を入力" maxlength="32" autocomplete="nickname" />
+        <button id="join-btn">参加する</button>
+      </div>
+    </div>
+
+    <!-- メイン画面 -->
+    <div id="app" hidden>
+      <div class="main">
+        <div class="video-wrap">
+          <video id="video" playsinline></video>
+          <div id="media-overlay" class="overlay"></div>
+          <button id="click-to-play" class="overlay overlay-btn" hidden>▶ クリックして再生に参加</button>
+        </div>
+        <div class="controls">
+          <button id="play-btn" title="再生/一時停止" disabled>▶</button>
+          <span id="time-label" class="time">0:00 / 0:00</span>
+          <div id="seek-wrap" class="seek-wrap">
+            <input id="seek" type="range" min="0" max="1000" step="1" value="0" disabled />
+            <div id="seek-preview" class="seek-preview" hidden>
+              <img id="seek-preview-img" alt="" hidden />
+              <span id="seek-preview-time"></span>
+            </div>
+          </div>
+          <span id="drift-label" class="drift" title="サーバーとの再生位置のズレ"></span>
+          <input id="volume" type="range" min="0" max="100" value="100" title="音量" />
+          <button id="fullscreen-btn" title="全画面">⛶</button>
+        </div>
+      </div>
+
+      <aside class="sidebar">
+        <section>
+          <h2>共有</h2>
+          <div class="share-row">
+            <input id="share-url" type="text" readonly />
+            <button id="copy-btn" title="コピー">📋</button>
+          </div>
+          <p id="tunnel-note" class="note" hidden>公開トンネル未接続 (ローカルURLのみ)</p>
+        </section>
+
+        <section>
+          <h2>参加者</h2>
+          <ul id="participants" class="participants"></ul>
+        </section>
+
+        <section id="host-settings" hidden>
+          <h2>設定</h2>
+          <label class="toggle-row">
+            <input id="guest-control-toggle" type="checkbox" />
+            ゲストにも再生操作を許可 (再生/停止・シーク・10秒スキップ)
+          </label>
+        </section>
+
+        <section id="media-section" hidden>
+          <h2>動画を選択 (ホスト)</h2>
+          <div class="share-row">
+            <input id="path-input" type="text" placeholder="ファイルの絶対パスを入力" />
+            <button id="path-btn">開く</button>
+          </div>
+          <p class="note">メディアフォルダ: <span id="media-dir"></span></p>
+          <ul id="file-list" class="file-list"></ul>
+          <button id="refresh-files" class="ghost">一覧を更新</button>
+        </section>
+
+        <p id="conn-status" class="note"></p>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
