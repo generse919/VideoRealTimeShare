@@ -44,7 +44,7 @@
 
 - [Node.js](https://nodejs.org/) 20以上
 - [ffmpeg](https://ffmpeg.org/) — MKV等の変換に必要 (`winget install Gyan.FFmpeg` / `choco install ffmpeg`)
-- [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) — リモート公開に必要 (`winget install Cloudflare.cloudflared`)。無くてもLAN内なら利用可
+- [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) — リモート公開に使う (`winget install Cloudflare.cloudflared`)。無くても localtunnel に自動で切り替わります (下記「リモート公開のしくみ」参照)
 
 ゲストはブラウザだけでOKです。
 
@@ -80,6 +80,37 @@ npm start          # ビルドして起動
 
 操作した本人の映像は、サーバーとの通信を待たずにその場で反映されます (楽観的更新)。サーバーからの同期はその直後に届き、値のズレはほぼ生じません。
 
+## リモート公開のしくみ
+
+離れた場所にいる友人に見せるため、起動時に公開URL (トンネル) を自動で作ります。次の順に試します。
+
+1. **cloudflared** — `https://xxxx.trycloudflare.com`。アカウント不要。ただし `cloudflared` の導入が必要
+2. **localtunnel** — `https://xxxx.loca.lt`。アカウントも追加インストールも不要 (同梱)
+
+公開URLができても、**その名前が自分の環境から引けなければ次の方法へ自動的に切り替えます**。一部のプロバイダやルーターのDNSは `trycloudflare.com` のIPv4アドレスを返さないことがあり、そのままではブラウザが「このサイトにアクセスできません (DNS_PROBE_POSSIBLE)」になるためです。
+
+localtunnel が使われた場合、ゲストは初回アクセス時に確認ページを通ります。そこで入力するパスワード (ホストのグローバルIPアドレス) は起動時のログに表示されるので、URLと一緒に伝えてください。
+
+**localtunnel はパソコン内の動画ファイルの配信には向きません。** 同時接続数が少なく、大きなファイルを流すとトンネルが詰まって `502` になります。YouTubeを共有する場合は映像がトンネルを通らないため問題ありません。動画ファイルを共有したい場合は cloudflared を使ってください。
+
+`VRT_TUNNEL` で方法を固定することもできます。
+
+Windows (PowerShell):
+
+```powershell
+$env:VRT_TUNNEL="cloudflared"; npm start
+```
+
+Mac / Linux:
+
+```sh
+VRT_TUNNEL=cloudflared npm start   # cloudflared だけを使う
+VRT_TUNNEL=localtunnel npm start   # localtunnel だけを使う
+VRT_TUNNEL=ngrok npm start         # ngrok を使う (要アカウント登録・認証トークン設定)
+```
+
+ngrok は無料プランでも事前に `ngrok config add-authtoken ...` が必要なため、自動選択の対象には入れていません。
+
 ## 設定 (環境変数)
 
 | 変数 | 既定値 | 説明 |
@@ -87,9 +118,11 @@ npm start          # ビルドして起動
 | `VRT_PORT` | `8787` | サーバーポート |
 | `VRT_MEDIA_DIR` | `~/Videos` (Macは `~/Movies`) | 動画一覧に表示するフォルダ |
 | `VRT_ROOM_TOKEN` / `VRT_HOST_KEY` | 起動ごとにランダム | URLを固定したい場合に指定 |
-| `VRT_NO_TUNNEL` | - | `1` で cloudflared を起動しない |
+| `VRT_TUNNEL` | 自動 | 公開方法を固定 (`cloudflared` / `localtunnel` / `ngrok`) |
+| `VRT_NO_TUNNEL` | - | `1` でリモート公開をしない (LAN内のみ) |
 | `VRT_NO_OPEN` | - | `1` で起動時のブラウザ自動起動を無効化 |
 | `VRT_FFMPEG_PATH` / `VRT_FFPROBE_PATH` | PATHから自動検出 | ffmpeg/ffprobe の場所を明示 |
+| `VRT_CLOUDFLARED_PATH` / `VRT_NGROK_PATH` | PATHから自動検出 | cloudflared/ngrok の場所を明示 |
 
 ffmpegの自動検出は「ffprobeが見つかったフォルダのffmpeg」を優先します (ImageMagick等が古いffmpegだけをPATHに置いている環境への対策)。
 
@@ -102,7 +135,7 @@ npm run typecheck  # 型チェック
 
 構成:
 
-- `server/` — Express + ws。`room.ts` が同期の状態機械、`media.ts` がffprobe判定とffmpeg変換、`tunnel.ts` がcloudflared連携、`launcher.mjs` が配布版の非エンジニア向け起動メッセージ担当
+- `server/` — Express + ws。`room.ts` が同期の状態機械、`media.ts` がffprobe判定とffmpeg変換、`tunnel.ts` が公開トンネル (cloudflared / localtunnel / ngrok) の起動と選択、`launcher.mjs` が配布版の非エンジニア向け起動メッセージ担当
 - `client/` — Vite + vanilla TS。`src/sync.ts` がクロック同期とドリフト補正エンジン
 - `shared/messages.ts` — WSメッセージの型定義 (両側で共用)
 
@@ -132,3 +165,5 @@ git push origin v1.0.0
 - 変換が必要なファイル (HEVC等) は変換完了まで再生開始できません (映像がH.264なら音声のみ変換で高速)
 - 内蔵字幕は現状ドロップされます (焼き込み済み字幕は表示可)
 - トンネルURLを知っていれば誰でも参加できるため、URLの共有範囲に注意
+- 環境によっては特定のトンネル業者のドメインが名前解決できないことがあります (自動で別の方法に切り替わりますが、その分だけ起動に時間がかかります)
+- localtunnel にフォールバックした場合、動画ファイルの配信は実用になりません (YouTube共有は可)
