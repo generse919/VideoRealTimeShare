@@ -25,6 +25,7 @@ export class Room {
 
   private members = new Map<string, Member>();
   private participantsDirty = false;
+  private lastMediaVersion = 0;
   private guestControlEnabled = false;
   private getTunnelInfo: () => { tunnelUrl: string | null; shareUrl: string };
 
@@ -169,8 +170,11 @@ export class Room {
   }
 
   private onMediaUpdate(info: MediaInfo): void {
-    if (info.status === "ready" || info.status === "probing") {
-      // メディアが切り替わったら先頭で一時停止に戻す
+    // メディアが切り替わったら先頭で一時停止に戻す。
+    // version を見るのは、再生開始後に届く更新 (サムネイル生成完了など) で
+    // 再生位置が巻き戻らないようにするため。
+    if (info.version !== this.lastMediaVersion) {
+      this.lastMediaVersion = info.version;
       this.playback = { paused: true, position: 0, updatedAt: Date.now() };
       this.broadcast({ type: "playback", playback: this.playback });
     }
