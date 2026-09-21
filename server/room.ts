@@ -7,7 +7,7 @@ import type {
   PlaybackState,
   ServerMessage,
 } from "../shared/messages.ts";
-import { MediaManager } from "./media.ts";
+import { MediaManager, parseYoutubeId } from "./media.ts";
 
 interface Member {
   ws: WebSocket;
@@ -154,6 +154,31 @@ export class Room {
         void this.media.prepare(msg.path);
         break;
 
+      case "selectYoutube": {
+        if (!participant.isHost) {
+          this.send(ws, { type: "error", message: "ホストのみ操作できます" });
+          return;
+        }
+        const youtubeId = parseYoutubeId(msg.url);
+        if (!youtubeId) {
+          this.send(ws, { type: "error", message: "YouTubeのURLとして解釈できませんでした" });
+          return;
+        }
+        this.media.setYoutube(youtubeId, `YouTube: ${youtubeId}`);
+        break;
+      }
+
+      case "reportDuration":
+        // 長さはホストのプレイヤーだけが知っているので、ホストの報告のみ受け付ける
+        if (!participant.isHost) return;
+        if (this.media.setReportedDuration(msg.version, msg.duration)) {
+          // 長さが判明したので、それを踏まえた位置に丸めて配り直す
+          const now = Date.now();
+          this.playback = { ...this.playback, position: this.clampPosition(this.currentPosition(now)), updatedAt: now };
+          this.broadcast({ type: "playback", playback: this.playback });
+        }
+        break;
+
       case "setGuestControl":
         if (!participant.isHost) return;
         this.guestControlEnabled = msg.enabled;
@@ -171,7 +196,7 @@ export class Room {
 
   private onMediaUpdate(info: MediaInfo): void {
     // メディアが切り替わったら先頭で一時停止に戻す。
-    // version を見るのは、再生開始後に届く更新 (サムネイル生成完了など) で
+    // version を見るのは、再生開始後に届く更新 (サムネイル生成完了・長さの報告) で
     // 再生位置が巻き戻らないようにするため。
     if (info.version !== this.lastMediaVersion) {
       this.lastMediaVersion = info.version;

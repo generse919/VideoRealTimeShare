@@ -1,4 +1,6 @@
 import type { PlaybackState } from "../../shared/messages.ts";
+import type { PlayerAdapter } from "./player.ts";
+
 
 /**
  * NTP 方式のクロック同期。ping/pong の往復からサーバーとの時計オフセットを推定する。
@@ -33,18 +35,37 @@ const HARD_SEEK = 1.0;
 const RATE_NUDGE = 0.05;
 
 /**
- * サーバーの権威的な再生状態に <video> を追従させるエンジン。
- * 小さなズレは playbackRate で滑らかに吸収し、大きなズレのみシークする。
+ * 速度の微調整ができないプレイヤー (YouTube) 用のしきい値。
+ * 補正手段がシークしかなく、シークのたびに再バッファが入って
+ * 目に見える引っかかりになるため、許容するズレを大きめに取る。
+ */
+const COARSE_DEADBAND = 0.5;
+/** シークによる補正の最短間隔 (ms)。シーク連発でガタつくのを防ぐ */
+const COARSE_SEEK_COOLDOWN = 2000;
+
+/**
+ * サーバーの権威的な再生状態にプレイヤーを追従させるエンジン。
+ * 小さなズレは playbackRate で滑らかに吸収し、大きなズレのみシークする
+ * (速度調整ができないプレイヤーでは常にシークで合わせる)。
  */
 export class SyncEngine {
   private playback: PlaybackState | null = null;
   private timer: number | null = null;
+  private lastCoarseSeek = 0;
 
   constructor(
-    private video: HTMLVideoElement,
+    private player: PlayerAdapter,
     private clock: ClockSync,
     private onAutoplayBlocked: (blocked: boolean) => void,
   ) {}
+
+  /** 追従先のプレイヤーを差し替える (ファイル <-> YouTube の切り替え) */
+  setPlayer(player: PlayerAdapter): void {
+    this.player.setRate(1);
+    this.player = player;
+    this.lastCoarseSeek = 0;
+    this.tick();
+  }
 
   setState(playback: PlaybackState): void {
     this.playback = playback;
@@ -59,30 +80,29 @@ export class SyncEngine {
   expectedPosition(): number | null {
     if (!this.playback) return null;
     if (this.playback.paused) return this.playback.position;
-    const duration = Number.isFinite(this.video.duration) ? this.video.duration : Infinity;
     return Math.min(
       this.playback.position + (this.clock.serverNow() - this.playback.updatedAt) / 1000,
-      duration,
+      this.player.duration(),
     );
   }
 
   /** 現在のズレ (ms)。+なら進んでいる。状態が無いときは null */
   driftMs(): number | null {
     const expected = this.expectedPosition();
-    if (expected == null || this.video.readyState === 0) return null;
-    return Math.round((this.video.currentTime - expected) * 1000);
+    if (expected == null || !this.player.isReady()) return null;
+    return Math.round((this.player.currentTime() - expected) * 1000);
   }
 
   private tick(): void {
-    const video = this.video;
+    const player = this.player;
     const playback = this.playback;
-    if (!playback || video.readyState === 0) return;
+    if (!playback || !player.isReady()) return;
 
     if (playback.paused) {
-      if (!video.paused) video.pause();
-      video.playbackRate = 1;
-      if (Math.abs(video.currentTime - playback.position) > 0.1) {
-        video.currentTime = playback.position;
+      if (!player.isPaused()) player.pause();
+      player.setRate(1);
+      if (Math.abs(player.currentTime() - playback.position) > 0.1) {
+        player.seek(playback.position);
       }
       this.onAutoplayBlocked(false);
       return;
@@ -91,26 +111,36 @@ export class SyncEngine {
     const expected = this.expectedPosition();
     if (expected == null) return;
 
-    if (video.paused) {
-      if (!video.seeking && Math.abs(video.currentTime - expected) > DEADBAND) {
-        video.currentTime = expected;
+    if (player.isPaused()) {
+      if (!player.isSeeking() && Math.abs(player.currentTime() - expected) > DEADBAND) {
+        player.seek(expected);
       }
-      video.play().then(
+      player.play().then(
         () => this.onAutoplayBlocked(false),
         () => this.onAutoplayBlocked(true), // 自動再生ブロック → クリック待ちUIを出す
       );
       return;
     }
 
-    if (video.seeking) return;
-    const drift = video.currentTime - expected;
+    if (player.isSeeking()) return;
+    const drift = player.currentTime() - expected;
+
+    if (!player.fineRate) {
+      // シークでしか直せないので、無視できないズレのときだけ・間隔を空けて合わせる
+      if (Math.abs(drift) > COARSE_DEADBAND && Date.now() - this.lastCoarseSeek > COARSE_SEEK_COOLDOWN) {
+        this.lastCoarseSeek = Date.now();
+        player.seek(expected + 0.3); // シーク後の再バッファ分を見込んで少し先へ
+      }
+      return;
+    }
+
     if (Math.abs(drift) > HARD_SEEK) {
-      video.currentTime = expected + 0.05; // シーク処理分をわずかに先読み
-      video.playbackRate = 1;
+      player.seek(expected + 0.05); // シーク処理分をわずかに先読み
+      player.setRate(1);
     } else if (Math.abs(drift) > DEADBAND) {
-      video.playbackRate = drift > 0 ? 1 - RATE_NUDGE : 1 + RATE_NUDGE;
+      player.setRate(drift > 0 ? 1 - RATE_NUDGE : 1 + RATE_NUDGE);
     } else {
-      video.playbackRate = 1;
+      player.setRate(1);
     }
   }
 }

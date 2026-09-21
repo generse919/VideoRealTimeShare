@@ -11,8 +11,14 @@ export interface PlaybackState {
 
 export type MediaStatus = "none" | "probing" | "converting" | "ready" | "error";
 
+/** 映像の供給元。file = ホストPCのファイル配信 / youtube = 各自のブラウザがYouTubeから直接再生 */
+export type MediaKind = "file" | "youtube";
+
 export interface MediaInfo {
   status: MediaStatus;
+  kind: MediaKind;
+  /** kind === "youtube" のときの動画ID */
+  youtubeId: string | null;
   /** 表示用ファイル名 */
   fileName: string | null;
   /** 動画の長さ (秒) */
@@ -56,6 +62,9 @@ export type ClientMessage =
   | { type: "pause" }
   | { type: "seek"; position: number }
   | { type: "selectMedia"; path: string }
+  | { type: "selectYoutube"; url: string }
+  /** YouTube は長さをサーバー側で知れないため、ホストのプレイヤーが判明時に報告する */
+  | { type: "reportDuration"; version: number; duration: number }
   | { type: "setGuestControl"; enabled: boolean }
   | { type: "status"; driftMs: number | null; buffering: boolean; ready: boolean };
 

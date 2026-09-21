@@ -21,6 +21,36 @@ export function isVideoFile(file: string): boolean {
   return VIDEO_EXTENSIONS.has(path.extname(file).toLowerCase());
 }
 
+/**
+ * YouTube の各種URL表記から動画IDを取り出す。
+ * youtu.be/ID / watch?v=ID / embed/ID / shorts/ID / live/ID、およびID直書きに対応。
+ */
+export function parseYoutubeId(input: string): string | null {
+  const text = input.trim();
+  if (/^[\w-]{11}$/.test(text)) return text;
+
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./, "");
+  const segments = url.pathname.split("/").filter(Boolean);
+
+  const valid = (id: string | undefined): string | null => (id && /^[\w-]{11}$/.test(id) ? id : null);
+
+  if (host === "youtu.be") return valid(segments[0]);
+  if (host !== "youtube.com" && host !== "m.youtube.com" && host !== "music.youtube.com" && host !== "youtube-nocookie.com") {
+    return null;
+  }
+  if (segments[0] === "watch") return valid(url.searchParams.get("v") ?? undefined);
+  if (segments[0] === "embed" || segments[0] === "shorts" || segments[0] === "live" || segments[0] === "v") {
+    return valid(segments[1]);
+  }
+  return valid(url.searchParams.get("v") ?? undefined);
+}
+
 function runFfprobe(file: string): Promise<ProbeResult> {
   return new Promise((resolve, reject) => {
     if (!config.ffprobePath) return reject(new Error("ffprobe が見つかりません。ffmpeg をインストールしてください。"));
@@ -70,6 +100,8 @@ function isDirectPlayable(file: string, probe: ProbeResult): boolean {
 export class MediaManager {
   info: MediaInfo = {
     status: "none",
+    kind: "file",
+    youtubeId: null,
     fileName: null,
     duration: null,
     progress: null,
@@ -104,6 +136,8 @@ export class MediaManager {
     const fileName = path.basename(filePath);
     this.update({
       status: "probing",
+      kind: "file",
+      youtubeId: null,
       fileName,
       duration: null,
       progress: null,
@@ -129,6 +163,40 @@ export class MediaManager {
       if (seq !== this.prepareSeq) return;
       this.update({ status: "error", error: e instanceof Error ? e.message : String(e) });
     }
+  }
+
+  /**
+   * YouTube動画を共有対象にする。映像はサーバーを経由せず各クライアントが
+   * YouTubeから直接受信するため、ffprobe / ffmpeg は一切使わず即 ready になる。
+   * 長さ (duration) はホストのプレイヤーが判明時に reportDuration で報告する。
+   */
+  setYoutube(youtubeId: string, label: string): void {
+    ++this.prepareSeq;
+    this.cancelConversion();
+    this.cancelThumbnails();
+    this.servePath = null;
+    this.update({
+      status: "ready",
+      kind: "youtube",
+      youtubeId,
+      fileName: label,
+      duration: null,
+      progress: null,
+      error: null,
+      version: this.info.version + 1,
+      direct: true,
+      thumbInterval: null,
+      thumbCount: null,
+    });
+  }
+
+  /** ホストのプレイヤーから報告された長さを反映する (YouTube用) */
+  setReportedDuration(version: number, duration: number): boolean {
+    if (version !== this.info.version || this.info.kind !== "youtube") return false;
+    if (!Number.isFinite(duration) || duration <= 0) return false;
+    if (this.info.duration != null && Math.abs(this.info.duration - duration) < 0.5) return false;
+    this.update({ duration });
+    return true;
   }
 
   private markReady(duration: number, direct: boolean, seq: number): void {
