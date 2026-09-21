@@ -1,4 +1,5 @@
 import type { MediaFileEntry, MediaInfo, Participant, PlaybackState } from "../../shared/messages.ts";
+import { VideoElementPlayer, YoutubePlayer, type PlayerAdapter } from "./player.ts";
 import { ClockSync, SyncEngine } from "./sync.ts";
 import { SocketClient } from "./ws.ts";
 
@@ -10,6 +11,8 @@ const nameInput = $<HTMLInputElement>("name-input");
 const joinBtn = $<HTMLButtonElement>("join-btn");
 const appEl = $("app");
 const video = $<HTMLVideoElement>("video");
+const ytSlot = $("yt-slot");
+const ytClick = $("yt-click");
 const mediaOverlay = $("media-overlay");
 const clickToPlay = $<HTMLButtonElement>("click-to-play");
 const playBtn = $<HTMLButtonElement>("play-btn");
@@ -29,6 +32,8 @@ const participantsList = $("participants");
 const hostSettings = $("host-settings");
 const guestControlToggle = $<HTMLInputElement>("guest-control-toggle");
 const mediaSection = $("media-section");
+const ytInput = $<HTMLInputElement>("yt-input");
+const ytBtn = $<HTMLButtonElement>("yt-btn");
 const pathInput = $<HTMLInputElement>("path-input");
 const pathBtn = $<HTMLButtonElement>("path-btn");
 const mediaDirLabel = $("media-dir");
@@ -53,7 +58,14 @@ function canControl(): boolean {
 }
 
 const clock = new ClockSync();
-const engine = new SyncEngine(video, clock, (blocked) => {
+
+// 映像の供給元 (ローカルファイル / YouTube) が切り替わっても同期ロジックは
+// 共通なので、追従先のプレイヤーだけを差し替える
+const videoPlayer = new VideoElementPlayer(video);
+let ytPlayer: YoutubePlayer | null = null;
+let activePlayer: PlayerAdapter = videoPlayer;
+
+const engine = new SyncEngine(videoPlayer, clock, (blocked) => {
   clickToPlay.hidden = !blocked;
 });
 
@@ -155,7 +167,7 @@ function startStatusLoop(): void {
       type: "status",
       driftMs: engine.driftMs(),
       buffering,
-      ready: video.readyState >= 3,
+      ready: activePlayer.isBuffered(),
     });
   }, 2000);
 }
@@ -163,6 +175,86 @@ function startStatusLoop(): void {
 // ---- メディア状態 ----
 
 let loadedVersion = -1;
+/** YouTube プレイヤーの生成は非同期なので、待つ間に別の動画へ切り替わったかの判別に使う */
+let ytSetupSeq = 0;
+/** プレイヤー自身が報告したエラー (埋め込み禁止など)。サーバーは関知しない */
+let localError: string | null = null;
+
+/** ホストPCから配信されるファイルに切り替える */
+function useFileSource(version: number): void {
+  ytSetupSeq++;
+  if (ytPlayer) {
+    ytPlayer.destroy();
+    ytPlayer = null;
+  }
+  ytSlot.replaceChildren();
+  ytSlot.hidden = true;
+  ytClick.hidden = true;
+  video.hidden = false;
+  activePlayer = videoPlayer;
+  engine.setPlayer(videoPlayer);
+  video.src = `/video?room=${encodeURIComponent(roomToken!)}&v=${version}`;
+  video.load();
+}
+
+/** YouTube に切り替える。映像はサーバーを通らず各自のブラウザが直接受信する */
+async function useYoutubeSource(videoId: string, version: number): Promise<void> {
+  const seq = ++ytSetupSeq;
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+  video.hidden = true;
+  ytSlot.hidden = false;
+  ytClick.hidden = false;
+
+  try {
+    if (ytPlayer) {
+      ytPlayer.load(videoId);
+    } else {
+      const slot = document.createElement("div");
+      ytSlot.replaceChildren(slot);
+      const created = await YoutubePlayer.create(
+        slot,
+        videoId,
+        (message) => {
+          localError = message;
+          if (media) applyMedia(media);
+        },
+        (isBuffering) => (buffering = isBuffering),
+      );
+      if (seq !== ytSetupSeq) {
+        created.destroy(); // 待っている間に別の動画へ切り替わった
+        return;
+      }
+      ytPlayer = created;
+    }
+    ytPlayer.setVolume(Number(volumeBar.value) / 100);
+    activePlayer = ytPlayer;
+    engine.setPlayer(ytPlayer);
+    if (isHost) reportYoutubeDuration(version);
+  } catch (e) {
+    localError = e instanceof Error ? e.message : String(e);
+    if (media) applyMedia(media);
+  }
+}
+
+/**
+ * YouTube 動画の長さはサーバー側では分からないため、ホストのプレイヤーが
+ * 把握した時点でサーバーへ報告する (全員のシークバー表示に使われる)。
+ */
+function reportYoutubeDuration(version: number): void {
+  let tries = 0;
+  const timer = setInterval(() => {
+    if (loadedVersion !== version) return clearInterval(timer);
+    const duration = ytPlayer?.duration();
+    if (duration != null && Number.isFinite(duration)) {
+      socket?.send({ type: "reportDuration", version, duration });
+      clearInterval(timer);
+    } else if (++tries > 40) {
+      clearInterval(timer); // ライブ配信など長さが確定しないものは諦める
+    }
+  }, 500);
+}
 
 function applyMedia(next: MediaInfo): void {
   media = next;
@@ -170,13 +262,25 @@ function applyMedia(next: MediaInfo): void {
 
   if (status === "ready" && loadedVersion !== next.version && roomToken) {
     loadedVersion = next.version;
-    video.src = `/video?room=${encodeURIComponent(roomToken)}&v=${next.version}`;
-    video.load();
+    localError = null;
+    if (next.kind === "youtube" && next.youtubeId) {
+      void useYoutubeSource(next.youtubeId, next.version);
+    } else {
+      useFileSource(next.version);
+    }
+  }
+
+  if (localError) {
+    mediaOverlay.textContent = `エラー: ${localError}`;
+    mediaOverlay.hidden = false;
+    updateControlAvailability();
+    updateTimeUi();
+    return;
   }
 
   if (status === "none") {
     mediaOverlay.textContent = isHost
-      ? "右のパネルから共有する動画を選択してください"
+      ? "右のパネルからYouTubeのURLまたは動画ファイルを選んでください"
       : "ホストが動画を選択するのを待っています...";
     mediaOverlay.hidden = false;
   } else if (status === "probing") {
@@ -196,7 +300,7 @@ function applyMedia(next: MediaInfo): void {
 }
 
 function updateControlAvailability(): void {
-  const enabled = canControl() && media?.status === "ready";
+  const enabled = canControl() && media?.status === "ready" && !localError;
   playBtn.disabled = !enabled;
   seekBar.disabled = !enabled;
 }
@@ -219,7 +323,7 @@ function applyOptimistic(paused: boolean, position: number): void {
 function requestPlayPause(): void {
   if (!canControl() || !media || media.status !== "ready" || !lastPlayback) return;
   const pausedNow = lastPlayback.paused;
-  const position = engine.expectedPosition() ?? video.currentTime;
+  const position = engine.expectedPosition() ?? activePlayer.currentTime();
   applyOptimistic(!pausedNow, position);
   socket?.send({ type: pausedNow ? "play" : "pause" });
 }
@@ -233,7 +337,7 @@ function requestSeek(position: number): void {
 }
 
 function requestSkip(deltaSec: number): void {
-  const base = engine.expectedPosition() ?? video.currentTime;
+  const base = engine.expectedPosition() ?? activePlayer.currentTime();
   requestSeek(base + deltaSec);
 }
 
@@ -276,8 +380,11 @@ seekWrap.addEventListener("mouseleave", () => {
   seekPreview.hidden = true;
 });
 
-// 画面 (映像) をタップ/クリックで再生・一時停止をトグル
+// 画面 (映像) をタップ/クリックで再生・一時停止をトグル。
+// YouTube のときは iframe に重ねた透明レイヤーがクリックを受け取る
+// (YouTube 自身のUIで操作されると全員との同期が崩れるため)
 video.addEventListener("click", () => requestPlayPause());
+ytClick.addEventListener("click", () => requestPlayPause());
 
 // 矢印キーで10秒スキップ (入力欄にフォーカス中は無視)
 window.addEventListener("keydown", (e) => {
@@ -299,12 +406,14 @@ guestControlToggle.addEventListener("change", () => {
 });
 
 clickToPlay.addEventListener("click", () => {
-  void video.play();
+  // 自動再生ブロックの解除には、ユーザー操作の中から直接再生を呼ぶ必要がある
+  if (ytPlayer && activePlayer === ytPlayer) ytPlayer.forcePlay();
+  else void video.play();
   clickToPlay.hidden = true;
 });
 
 volumeBar.addEventListener("input", () => {
-  video.volume = Number(volumeBar.value) / 100;
+  activePlayer.setVolume(Number(volumeBar.value) / 100);
 });
 
 fullscreenBtn.addEventListener("click", () => {
@@ -335,8 +444,9 @@ function updateTimeUi(): void {
     timeLabel.textContent = `${formatTime(preview)} / ${formatTime(duration)}`;
     return;
   }
-  timeLabel.textContent = `${formatTime(video.currentTime)} / ${formatTime(duration)}`;
-  if (duration > 0) seekBar.value = String(Math.round((video.currentTime / duration) * 1000));
+  const current = activePlayer.currentTime();
+  timeLabel.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
+  if (duration > 0) seekBar.value = String(Math.round((current / duration) * 1000));
 
   const drift = engine.driftMs();
   if (drift == null || media?.status !== "ready") {
@@ -406,6 +516,14 @@ async function loadFileList(): Promise<void> {
     mediaDirLabel.textContent = `一覧の取得に失敗: ${e}`;
   }
 }
+
+ytBtn.addEventListener("click", () => {
+  const url = ytInput.value.trim();
+  if (url) socket?.send({ type: "selectYoutube", url });
+});
+ytInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") ytBtn.click();
+});
 
 refreshFilesBtn.addEventListener("click", () => void loadFileList());
 pathBtn.addEventListener("click", () => {

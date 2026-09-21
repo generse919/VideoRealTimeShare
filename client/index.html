@@ -24,6 +24,10 @@
       <div class="main">
         <div class="video-wrap">
           <video id="video" playsinline></video>
+          <!-- YouTube の IFrame プレイヤーはここに生成される -->
+          <div id="yt-slot" class="yt-slot" hidden></div>
+          <!-- YouTube 側のUIで直接操作されると同期が崩れるため、クリックを受け止める層 -->
+          <div id="yt-click" class="yt-click" hidden title="クリックで再生/一時停止"></div>
           <div id="media-overlay" class="overlay"></div>
           <button id="click-to-play" class="overlay overlay-btn" hidden>▶ クリックして再生に参加</button>
         </div>
@@ -68,6 +72,12 @@
 
         <section id="media-section" hidden>
           <h2>動画を選択 (ホスト)</h2>
+          <p class="note">YouTubeのURL</p>
+          <div class="share-row">
+            <input id="yt-input" type="text" placeholder="https://youtu.be/..." />
+            <button id="yt-btn">再生</button>
+          </div>
+          <p class="note">パソコン内のファイル</p>
           <div class="share-row">
             <input id="path-input" type="text" placeholder="ファイルの絶対パスを入力" />
             <button id="path-btn">開く</button>
