@@ -77,6 +77,13 @@ const cloudflaredPath =
     ...macFallback("cloudflared"),
   ]);
 
+const ngrokPath =
+  process.env.VRT_NGROK_PATH ??
+  findExecutable("ngrok", [
+    path.join(os.homedir(), "AppData", "Local", "Microsoft", "WinGet", "Links", "ngrok.exe"),
+    ...macFallback("ngrok"),
+  ]);
+
 const defaultMediaDir = path.join(os.homedir(), process.platform === "darwin" ? "Movies" : "Videos");
 
 export const config = {
@@ -88,6 +95,7 @@ export const config = {
   ffmpegPath: ffmpeg,
   ffprobePath: ffprobe,
   cloudflaredPath,
+  ngrokPath,
   // 固定したい場合は環境変数で指定 (毎回URLが変わるのを避けたいとき)
   roomToken: process.env.VRT_ROOM_TOKEN ?? crypto.randomBytes(9).toString("base64url"),
   hostKey: process.env.VRT_HOST_KEY ?? crypto.randomBytes(9).toString("base64url"),

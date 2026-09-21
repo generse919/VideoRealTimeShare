@@ -141,6 +141,8 @@ server.listen(config.port, () => {
     console.log("注意: client/dist がありません。開発時は `npm run dev` で http://localhost:5173 を使ってください。");
   }
   console.log("");
+  // 報告は1回だけのはずだが、ブラウザが二重に開くのは目立つ事故なので念のため抑止する
+  let browserOpened = false;
   startTunnel((url) => {
     tunnelUrl = url;
     if (url) {
@@ -148,6 +150,9 @@ server.listen(config.port, () => {
       console.log(`リモート (共有用URL)  : ${shareUrl()}  <- これを友人に送る`);
     }
     room.notifyTunnelChanged();
-    openBrowser(hostUrl());
+    if (!browserOpened) {
+      browserOpened = true;
+      openBrowser(hostUrl());
+    }
   });
 });
