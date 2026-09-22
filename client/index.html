@@ -24,15 +24,16 @@
       <div class="main">
         <div class="video-wrap">
           <video id="video" playsinline></video>
-          <!-- YouTube の IFrame プレイヤーはここに生成される -->
+          <!-- YouTube の IFrame プレイヤーはここに生成される。
+               YouTube の規約により、プレイヤーの前面に要素を重ねてはならない
+               (広告のスキップボタンやプレイヤー内リンクを塞いでしまうため)。
+               このため再生ボタン類はすべて下のコントロールバーに置いている。 -->
           <div id="yt-slot" class="yt-slot" hidden></div>
-          <!-- YouTube 側のUIで直接操作されると同期が崩れるため、クリックを受け止める層 -->
-          <div id="yt-click" class="yt-click" hidden title="クリックで再生/一時停止"></div>
           <div id="media-overlay" class="overlay"></div>
-          <button id="click-to-play" class="overlay overlay-btn" hidden>▶ クリックして再生に参加</button>
         </div>
         <div class="controls">
           <button id="play-btn" title="再生/一時停止" disabled>▶</button>
+          <button id="click-to-play" class="join-play" hidden>▶ 再生に参加</button>
           <span id="time-label" class="time">0:00 / 0:00</span>
           <div id="seek-wrap" class="seek-wrap">
             <input id="seek" type="range" min="0" max="1000" step="1" value="0" disabled />
@@ -88,6 +89,13 @@
         </section>
 
         <p id="conn-status" class="note"></p>
+
+        <p class="note legal">
+          本アプリは YouTube API Services を利用しています。
+          <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube 利用規約</a> /
+          <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google プライバシーポリシー</a> /
+          <a href="https://github.com/generse919/VideoRealTimeShare/blob/main/PRIVACY.md" target="_blank" rel="noopener">本アプリのプライバシーポリシー</a>
+        </p>
       </aside>
     </div>
 

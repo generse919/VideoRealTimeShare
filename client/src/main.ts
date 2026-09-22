@@ -12,7 +12,6 @@ const joinBtn = $<HTMLButtonElement>("join-btn");
 const appEl = $("app");
 const video = $<HTMLVideoElement>("video");
 const ytSlot = $("yt-slot");
-const ytClick = $("yt-click");
 const mediaOverlay = $("media-overlay");
 const clickToPlay = $<HTMLButtonElement>("click-to-play");
 const playBtn = $<HTMLButtonElement>("play-btn");
@@ -189,7 +188,6 @@ function useFileSource(version: number): void {
   }
   ytSlot.replaceChildren();
   ytSlot.hidden = true;
-  ytClick.hidden = true;
   video.hidden = false;
   activePlayer = videoPlayer;
   engine.setPlayer(videoPlayer);
@@ -205,7 +203,6 @@ async function useYoutubeSource(videoId: string, version: number): Promise<void>
   video.load();
   video.hidden = true;
   ytSlot.hidden = false;
-  ytClick.hidden = false;
 
   try {
     if (ytPlayer) {
@@ -221,6 +218,7 @@ async function useYoutubeSource(videoId: string, version: number): Promise<void>
           if (media) applyMedia(media);
         },
         (isBuffering) => (buffering = isBuffering),
+        handleYoutubeUserAction,
       );
       if (seq !== ytSetupSeq) {
         created.destroy(); // 待っている間に別の動画へ切り替わった
@@ -256,6 +254,21 @@ function reportYoutubeDuration(version: number): void {
   }, 500);
 }
 
+/**
+ * YouTube 自身のUIで再生/一時停止されたときの処理。
+ *
+ * 操作権のある人なら全員に伝え、無い人には何もしない
+ * (同期エンジンがサーバーの状態へ引き戻す)。
+ * プレイヤーの操作を塞ぐのではなく、操作されてから合わせにいく方針。
+ */
+function handleYoutubeUserAction(paused: boolean, position: number): void {
+  if (!lastPlayback || media?.status !== "ready") return;
+  if (paused === lastPlayback.paused) return; // 既にその状態なら何もしない
+  if (!canControl()) return;
+  applyOptimistic(paused, position);
+  socket?.send({ type: paused ? "pause" : "play" });
+}
+
 function applyMedia(next: MediaInfo): void {
   media = next;
   const { status } = next;
@@ -273,6 +286,7 @@ function applyMedia(next: MediaInfo): void {
   if (localError) {
     mediaOverlay.textContent = `エラー: ${localError}`;
     mediaOverlay.hidden = false;
+    syncYoutubeVisibility();
     updateControlAvailability();
     updateTimeUi();
     return;
@@ -295,8 +309,18 @@ function applyMedia(next: MediaInfo): void {
   } else {
     mediaOverlay.hidden = true;
   }
+  syncYoutubeVisibility();
   updateControlAvailability();
   updateTimeUi();
+}
+
+/**
+ * メディアオーバーレイ (待機中・エラー表示) は画面全面を覆うため、
+ * YouTube プレイヤーの前面に重ならないよう、出ている間はプレイヤー自体を隠す。
+ */
+function syncYoutubeVisibility(): void {
+  if (!ytPlayer || activePlayer !== ytPlayer) return;
+  ytSlot.hidden = !mediaOverlay.hidden;
 }
 
 function updateControlAvailability(): void {
@@ -380,11 +404,10 @@ seekWrap.addEventListener("mouseleave", () => {
   seekPreview.hidden = true;
 });
 
-// 画面 (映像) をタップ/クリックで再生・一時停止をトグル。
-// YouTube のときは iframe に重ねた透明レイヤーがクリックを受け取る
-// (YouTube 自身のUIで操作されると全員との同期が崩れるため)
+// 画面 (映像) をタップ/クリックで再生・一時停止をトグル (ローカルファイルのみ)。
+// YouTube では規約上プレイヤーの前面に要素を置けないため、
+// 操作は下のコントロールバーか YouTube 自身のUIから行う。
 video.addEventListener("click", () => requestPlayPause());
-ytClick.addEventListener("click", () => requestPlayPause());
 
 // 矢印キーで10秒スキップ (入力欄にフォーカス中は無視)
 window.addEventListener("keydown", (e) => {
