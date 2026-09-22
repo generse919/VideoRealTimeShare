@@ -179,18 +179,33 @@ async function printLocaltunnelHint(): Promise<void> {
     /* 取得できなくても致命的ではない */
   }
   console.log("[tunnel] localtunnel は初回アクセス時に確認ページを表示します。");
-  console.log(`[tunnel] そこで入力するパスワード: ${password}  (ゲストにも伝えてください)`);
+  console.log(`[tunnel] そこで入力するパスワード: ${password}`);
+  console.log("[tunnel] ※これはあなたの回線のグローバルIPアドレスです。");
+  console.log("[tunnel] 　おおよその居住地域が推測されうる情報なので、伝える相手を選んでください。");
 }
 
-/** 公開URLを報告して、必要ならlocaltunnelの注意書きも出す */
+/**
+ * quick tunnel (TryCloudflare / localtunnel) は、提供元がテスト・開発用と
+ * 位置づけているサービス。動画ファイルを流し続けるような常用は想定外なので、
+ * 使うたびにその旨を伝える。
+ */
+function printQuickTunnelNotice(name: TunnelProvider): void {
+  console.log("[tunnel] ---------------------------------------------------------------");
+  console.log(`[tunnel] ${name} の無料トンネルは、提供元がテスト・開発用と位置づけています。`);
+  console.log("[tunnel] パソコン内の動画ファイルを日常的に配信する用途には向きません。");
+  console.log("[tunnel] 　・YouTubeの共有: 映像はトンネルを通らないので問題ありません");
+  console.log("[tunnel] 　・動画ファイルの共有: 同じネットワーク内で見る (VRT_NO_TUNNEL=1) か、");
+  console.log("[tunnel] 　　自分のドメインで作る Cloudflare Tunnel などをご検討ください");
+  console.log("[tunnel] ---------------------------------------------------------------");
+}
+
+/** 公開URLを報告して、必要な注意書きを出す */
 async function report(name: TunnelProvider, url: string, onUrl: (url: string | null) => void): Promise<void> {
   console.log(`[tunnel] 公開URL (${name}): ${url}`);
+  if (name === "cloudflared" || name === "localtunnel") printQuickTunnelNotice(name);
   if (name === "localtunnel") {
-    // 同時接続数が少なく、動画ファイルの配信には耐えられない。
-    // YouTube共有なら映像がここを通らないので問題なく使える。
-    console.warn("[tunnel] 注意: localtunnel はパソコン内の動画ファイルの配信には向きません (502 になることがあります)。");
-    console.warn("[tunnel] 　　　 YouTubeの共有であれば映像がこのトンネルを通らないため問題ありません。");
-    console.warn("[tunnel] 　　　 動画ファイルを共有したい場合は cloudflared を使ってください (`VRT_TUNNEL=cloudflared` で固定できます)。");
+    // 同時接続数が少なく、動画ファイルを流すと詰まって 502 になる
+    console.warn("[tunnel] 注意: localtunnel は同時接続数が少なく、動画ファイルの配信中に 502 になることがあります。");
     await printLocaltunnelHint();
   }
   onUrl(url);
