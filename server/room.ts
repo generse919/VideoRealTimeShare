@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import path from "node:path";
 import type { WebSocket } from "ws";
 import type {
   ClientMessage,
@@ -7,12 +8,25 @@ import type {
   PlaybackState,
   ServerMessage,
 } from "../shared/messages.ts";
+import { config } from "./config.ts";
 import { MediaManager, parseYoutubeId } from "./media.ts";
 
 interface Member {
   ws: WebSocket;
   participant: Participant;
 }
+
+/**
+ * 同時に参加できる人数の上限。
+ *
+ * 「友人と一緒に見る」用途に限定するための上限であり、単なる性能上の都合ではない。
+ * 不特定多数へ配信する装置になってしまうと、著作物を扱う際の位置づけが変わるため、
+ * 設計として「特定かつ少数」に収まることを担保している。
+ */
+const MAX_PARTICIPANTS = 4;
+
+/** 満員で入れなかったことを示すWebSocketのクローズコード (再接続させないために使う) */
+export const CLOSE_ROOM_FULL = 4001;
 
 /**
  * ルームの権威的状態。
@@ -64,6 +78,13 @@ export class Room {
   }
 
   join(ws: WebSocket, name: string, isHost: boolean): void {
+    // ホストは常に入れる (再接続できなくなると誰も操作できなくなるため)
+    if (!isHost && this.members.size >= MAX_PARTICIPANTS) {
+      this.send(ws, { type: "error", message: `満員です (最大${MAX_PARTICIPANTS}人)` });
+      ws.close(CLOSE_ROOM_FULL, "room full");
+      return;
+    }
+
     const id = crypto.randomBytes(6).toString("base64url");
     const participant: Participant = {
       id,
@@ -146,13 +167,28 @@ export class Room {
         break;
       }
 
-      case "selectMedia":
+      case "selectMedia": {
         if (!participant.isHost) {
           this.send(ws, { type: "error", message: "ホストのみ操作できます" });
           return;
         }
-        void this.media.prepare(msg.path);
+        // メディアフォルダの外は選ばせない。
+        // ホスト用URLを共有用URLと取り違えて渡してしまった場合に、
+        // 受け取った相手がホストPC上の任意のファイルを読み出せてしまうため。
+        const resolved = path.resolve(msg.path);
+        const root = path.resolve(config.mediaDir) + path.sep;
+        // Windows はパスの大文字小文字を区別しないので、比較もそれに合わせる
+        const norm = (v: string) => (process.platform === "win32" ? v.toLowerCase() : v);
+        if (!norm(resolved).startsWith(norm(root))) {
+          this.send(ws, {
+            type: "error",
+            message: `メディアフォルダ (${config.mediaDir}) の外にあるファイルは選択できません`,
+          });
+          return;
+        }
+        void this.media.prepare(resolved);
         break;
+      }
 
       case "selectYoutube": {
         if (!participant.isHost) {

@@ -353,3 +353,17 @@ input[type="range"] {
 .note.legal a {
   color: inherit;
 }
+
+/* ホスト参加時の確認チェック */
+.consent {
+  text-align: left;
+  font-size: 0.8rem;
+  color: var(--muted);
+  align-items: flex-start;
+  line-height: 1.5;
+}
+
+.consent input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}

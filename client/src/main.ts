@@ -9,6 +9,8 @@ const joinScreen = $("join-screen");
 const joinError = $("join-error");
 const nameInput = $<HTMLInputElement>("name-input");
 const joinBtn = $<HTMLButtonElement>("join-btn");
+const hostConsent = $("host-consent");
+const consentCheck = $<HTMLInputElement>("consent-check");
 const appEl = $("app");
 const video = $<HTMLVideoElement>("video");
 const ytSlot = $("yt-slot");
@@ -76,6 +78,15 @@ if (!roomToken) {
   nameInput.disabled = true;
   joinBtn.disabled = true;
 }
+// ホストは「何を共有してよいか」を確認してからでないと参加できない
+if (hostKey) {
+  hostConsent.hidden = false;
+  joinBtn.disabled = true;
+  consentCheck.addEventListener("change", () => {
+    joinBtn.disabled = !consentCheck.checked;
+  });
+}
+
 nameInput.value = localStorage.getItem("vrt-name") ?? "";
 nameInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") joinBtn.click();
@@ -86,6 +97,7 @@ let socket: SocketClient | null = null;
 joinBtn.addEventListener("click", () => {
   const name = nameInput.value.trim();
   if (!name || !roomToken) return;
+  if (hostKey && !consentCheck.checked) return;
   localStorage.setItem("vrt-name", name);
   joinBtn.disabled = true;
 
