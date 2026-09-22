@@ -15,6 +15,11 @@
         <p class="join-sub">低遅延・同時視聴</p>
         <p id="join-error" class="error" hidden></p>
         <input id="name-input" type="text" placeholder="表示名を入力" maxlength="32" autocomplete="nickname" />
+        <!-- ホストとして開いたときだけ表示する。何を共有してよいかの確認 -->
+        <label id="host-consent" class="toggle-row consent" hidden>
+          <input id="consent-check" type="checkbox" />
+          <span>自分が権利を持つ動画、または権利者の許諾を得た動画のみを共有します</span>
+        </label>
         <button id="join-btn">参加する</button>
       </div>
     </div>

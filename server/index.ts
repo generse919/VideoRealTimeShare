@@ -32,6 +32,14 @@ function openBrowser(url: string): void {
 const app = express();
 app.use(express.json());
 
+// 公開トンネルのURLが検索や外部サイトへ漏れないようにする。
+// 「特定少数で見る」前提の部屋なので、インデックスされるのは望ましくない。
+app.use((_req, res, next) => {
+  res.setHeader("X-Robots-Tag", "noindex, nofollow");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
+
 /** ルームトークン検証 (動画・API 共通) */
 function requireToken(req: express.Request, res: express.Response): boolean {
   if (req.query.room !== config.roomToken) {
