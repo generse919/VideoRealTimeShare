@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import archiver from "archiver";
 import { build } from "esbuild";
+import { generateNotices } from "./generate-notices.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const releaseDir = path.join(root, "release");
@@ -44,11 +45,21 @@ function assemble(platform, launcher) {
   fs.cpSync(path.join(root, "server", "launcher.mjs"), path.join(dir, "server", "launcher.mjs"));
   fs.cpSync(path.join(root, "client", "dist"), path.join(dir, "client", "dist"), { recursive: true });
   fs.cpSync(path.join(root, "README.md"), path.join(dir, "README.md"));
+
+  // 利用条件まわりを配布物に同梱する
+  for (const name of ["LICENSE", "PRIVACY.md"]) {
+    const src = path.join(root, name);
+    if (fs.existsSync(src)) fs.cpSync(src, path.join(dir, name));
+  }
+  fs.writeFileSync(path.join(dir, "THIRD-PARTY-NOTICES.txt"), notices);
   const dest = path.join(dir, launcher.name);
   fs.cpSync(path.join(root, "scripts", launcher.name), dest);
   if (launcher.mode) fs.chmodSync(dest, launcher.mode);
   return dir;
 }
+
+// バンドルした依存ライブラリのライセンス表示 (MIT等が複製物への同梱を求めている)
+const notices = generateNotices(root);
 
 console.log("[3/4] 配布フォルダを構成中...");
 const winDir = assemble("windows", { name: "start.bat" });
