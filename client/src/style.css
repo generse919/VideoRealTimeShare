@@ -125,10 +125,13 @@ video {
   height: 100%;
 }
 
-/* YouTube プレイヤー (iframe は生成時にこの中へ差し込まれる) */
+/* YouTube プレイヤー (iframe は生成時にこの中へ差し込まれる)。
+   YouTube の規約で最小 200x200px が求められるため下限を設ける。 */
 .yt-slot {
   position: absolute;
   inset: 0;
+  min-width: 200px;
+  min-height: 200px;
 }
 
 .yt-slot iframe {
@@ -137,15 +140,10 @@ video {
   border: 0;
 }
 
-/*
- * iframe の上に重ねる透明レイヤー。YouTube 自身のコントロールやリンクへ
- * クリックが届くと全員との同期が崩れるので、ここで受け止めて
- * アプリ側の再生/一時停止に変換する。
- */
-.yt-click {
-  position: absolute;
-  inset: 0;
-  cursor: pointer;
+/* 自動再生がブロックされたときだけ出る参加ボタン。
+   YouTube プレイヤーの前面には要素を置けないため、コントロールバーに並べる。 */
+.join-play {
+  white-space: nowrap;
 }
 
 .overlay {
@@ -343,4 +341,15 @@ input[type="range"] {
     border-top: 1px solid #2c313a;
     max-height: 40vh;
   }
+}
+
+/* YouTube API Services の利用にあたり表示が求められるリンク群 */
+.note.legal {
+  font-size: 0.75rem;
+  line-height: 1.6;
+  opacity: 0.8;
+}
+
+.note.legal a {
+  color: inherit;
 }

@@ -139,11 +139,15 @@ export class YoutubePlayer implements PlayerAdapter {
   /** play() を要求し始めた時刻。再生が始まらないまま一定時間経つとブロック扱い */
   private playSince = 0;
   private pendingVolume: number | null = null;
+  /** 自分 (同期エンジン) が操作した直後の猶予。この間の状態変化はユーザー操作とみなさない */
+  private selfActionUntil = 0;
 
   private constructor(
     private videoId: string,
     private onError: (message: string) => void,
     private onStateChange: (buffering: boolean) => void,
+    /** YouTube 自身のUIで再生/一時停止されたときに呼ばれる */
+    private onUserAction: (paused: boolean, position: number) => void,
   ) {}
 
   /** コンテナ要素に YouTube プレイヤーを生成する */
@@ -152,21 +156,23 @@ export class YoutubePlayer implements PlayerAdapter {
     videoId: string,
     onError: (message: string) => void,
     onStateChange: (buffering: boolean) => void,
+    onUserAction: (paused: boolean, position: number) => void,
   ): Promise<YoutubePlayer> {
     await loadYoutubeApi();
-    const self = new YoutubePlayer(videoId, onError, onStateChange);
+    const self = new YoutubePlayer(videoId, onError, onStateChange, onUserAction);
     await new Promise<void>((resolve) => {
       const YT = (window as any).YT;
       self.player = new YT.Player(container, {
         videoId,
         playerVars: {
-          // 操作は必ずこのアプリ側から行う (YouTube の UI で操作されると同期が崩れるため)
-          controls: 0,
-          disablekb: 1,
+          // YouTube の公式コントロールは必ず出す。
+          // 広告のスキップボタンやプレイヤー内のリンクに利用者が到達できる必要があり、
+          // それらを隠したり覆ったりすることは YouTube の規約で禁じられている。
+          // ここで操作されても、同期エンジンがサーバーの状態へ引き戻す (または
+          // 操作権のある人の操作としてサーバーへ伝える) ので同期は保たれる。
+          controls: 1,
           rel: 0,
-          modestbranding: 1,
           playsinline: 1,
-          fs: 0,
           origin: location.origin,
         },
         events: {
@@ -177,12 +183,26 @@ export class YoutubePlayer implements PlayerAdapter {
           onStateChange: (e: { data: number }) => {
             if (e.data === YT_STATE.PLAYING) self.playSince = 0;
             onStateChange(e.data === YT_STATE.BUFFERING);
+            self.reportIfUserAction(e.data);
           },
           onError: (e: { data: number }) => onError(youtubeErrorMessage(e.data)),
         },
       }) as YTPlayer;
     });
     return self;
+  }
+
+  /**
+   * YouTube のUIで操作されたかを判定して通知する。
+   *
+   * 同期エンジン自身の play()/pause()/seek() でも状態変化は起きるので、
+   * それらの直後は除外する。取りこぼしても補正ループがサーバー状態へ
+   * 引き戻すだけなので、誤検知しない側に倒している。
+   */
+  private reportIfUserAction(state: number): void {
+    if (state !== YT_STATE.PLAYING && state !== YT_STATE.PAUSED) return;
+    if (Date.now() < Math.max(this.selfActionUntil, this.seekingUntil)) return;
+    this.onUserAction(state === YT_STATE.PAUSED, this.currentTime());
   }
 
   /** 同じプレイヤーを使い回して別の動画に切り替える */
@@ -219,11 +239,13 @@ export class YoutubePlayer implements PlayerAdapter {
     return Date.now() < this.seekingUntil;
   }
   seek(sec: number): void {
+    this.selfActionUntil = Date.now() + 1200;
     this.player?.seekTo(sec, true);
     // シーク直後は getCurrentTime が古い値を返すことがあるため、少しの間は補正を止める
     this.seekingUntil = Date.now() + 500;
   }
   play(): Promise<void> {
+    this.selfActionUntil = Date.now() + 1200;
     const s = this.state();
     if (s === YT_STATE.PLAYING || s === YT_STATE.BUFFERING) {
       this.playSince = 0;
@@ -237,6 +259,7 @@ export class YoutubePlayer implements PlayerAdapter {
       : Promise.resolve();
   }
   pause(): void {
+    this.selfActionUntil = Date.now() + 1200;
     this.playSince = 0;
     this.player?.pauseVideo();
   }
@@ -257,6 +280,7 @@ export class YoutubePlayer implements PlayerAdapter {
 
   /** 自動再生ブロック解除用: ユーザー操作の中から直接呼ぶ */
   forcePlay(): void {
+    this.selfActionUntil = Date.now() + 1200;
     this.playSince = 0;
     this.player?.playVideo();
   }
